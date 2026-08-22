@@ -1,0 +1,32 @@
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Frontend - Next.js
+# =========================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# =========================
+# Backend - Gradle / Kotlin
+# =========================
+backend/build/
+backend/.gradle/
+backend/.kotlin/
+
+# =========================
+# IDE
+# =========================
+.idea/
+*.iml
+.vscode/
+
+# =========================
+# OS
+# =========================
+.DS_Store
