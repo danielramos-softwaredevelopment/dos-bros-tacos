@@ -27,11 +27,13 @@ export default function CheckoutForm({
         deliveryTime?: string
     }>({})
 
+    const API_URL = process.env.NEXT_PUBLIC_API_URL
+
 
 
     async function createPayment(orderId: string): Promise<PaymentResponse> {
         const response = await fetch(
-            `http://localhost:8080/payments/${orderId}`,
+            `${API_URL}/payments/${orderId}`,
             {
                 method: "POST",
             }
@@ -69,7 +71,7 @@ export default function CheckoutForm({
                 }))
             }
 
-            const response = await fetch("http://localhost:8080/orders", {
+            const response = await fetch(`${API_URL}/orders`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"

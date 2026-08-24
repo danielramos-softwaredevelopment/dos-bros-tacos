@@ -32,7 +32,6 @@ class PaymentService (
             paymentRequestId = UUID.randomUUID(),
             status = PaymentStatus.PENDING,
             amount = order.total,
-            transactionId = null,
             stripePaymentIntentId = null,
             createdAt = now,
             updatedAt = now,

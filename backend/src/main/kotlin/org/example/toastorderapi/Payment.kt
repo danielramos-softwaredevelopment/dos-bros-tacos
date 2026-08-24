@@ -35,8 +35,6 @@ class Payment(
     @Column(name = "amount")
     val amount: BigDecimal,
 
-    @Column(name = "transaction_id")
-    var transactionId: String?,
     @Column(name = "stripe_payment_intent_id")
     var stripePaymentIntentId: String?,
 

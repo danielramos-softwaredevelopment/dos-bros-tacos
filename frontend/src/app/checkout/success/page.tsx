@@ -9,6 +9,7 @@ export default function CheckoutSuccessPage() {
     const [order, setOrder] = useState<OrderResponse | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(false)
+    const API_URL = process.env.NEXT_PUBLIC_API_URL
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
@@ -26,7 +27,7 @@ export default function CheckoutSuccessPage() {
         async function fetchOrder() {
             try {
                 const response = await fetch(
-                    `http://localhost:8080/orders/${orderId}`,
+                    `${API_URL}/orders/${orderId}`,
                     {
                         cache: "no-store",
                     }
