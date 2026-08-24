@@ -8,8 +8,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 class WebConfig : WebMvcConfigurer {
     override fun addCorsMappings(registry: CorsRegistry) {
         registry.addMapping("/**")
-            .allowedOrigins("http://localhost:3000")
-            .allowedMethods("GET", "POST", "PATCH", "OPTIONS")
+            .allowedOrigins(
+                "http://localhost:3000",
+                "https://dos-bros-tacos.vercel.app"
+            )
+            .allowedMethods(
+                "GET",
+                "POST",
+                "PATCH",
+                "OPTIONS"
+            )
             .allowedHeaders("*")
     }
 }
