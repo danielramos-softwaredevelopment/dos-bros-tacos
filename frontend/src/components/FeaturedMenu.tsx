@@ -41,9 +41,11 @@ export default function FeaturedMenu({ featuredMenu }: FeaturedMenuProps) {
             ref={sectionRef}
             className="bg-c-cream text-center p-10 overflow-hidden">
             <div className="space-y-10">
-                <h2 className="text-5xl text-c-charcoal font-bold tracking-tight">Featured Menu</h2>
+                <h2 className="text-5xl text-c-charcoal font-bold tracking-tight">The Hall of Flavor</h2>
 
-                <p className="text-3xl text-stone-700">Customer Favorites Made Fresh</p>
+                <p className="text-3xl text-stone-700">
+                    Three legends. One delicious lineup.
+                </p>
 
                 <div className="grid gap-12 md:grid-cols-3">
                     {featuredMenu.map((menuItem, index) => (
