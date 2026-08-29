@@ -9,4 +9,8 @@ interface PaymentProvider {
         amount: BigDecimal,
         paymentRequestId: UUID,
     ): PaymentIntentResponse
+
+    fun retrievePaymentStatus(
+        paymentRequestId: UUID
+    ): PaymentStatus?
 }

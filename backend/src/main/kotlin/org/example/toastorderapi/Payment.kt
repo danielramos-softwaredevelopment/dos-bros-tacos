@@ -27,6 +27,8 @@ class Payment(
         unique = true
     )
     val paymentRequestId: UUID,
+    @Column(name = "stripe_payment_intent_id")
+    var stripePaymentIntentId: String?,
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
@@ -35,9 +37,8 @@ class Payment(
     @Column(name = "amount")
     val amount: BigDecimal,
 
-    @Column(name = "stripe_payment_intent_id")
-    var stripePaymentIntentId: String?,
-
+    @Column(name = "stripe_request_sent_at")
+    var stripeRequestSentAt: Instant?,
     @Column(name = "created_at")
     val createdAt: Instant,
     @Column(name = "updated_at")

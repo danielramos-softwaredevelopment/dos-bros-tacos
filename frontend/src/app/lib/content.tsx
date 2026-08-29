@@ -403,7 +403,7 @@ export const footerContent: FooterContent = {
     address: "123 Turbo Dr, Austin, TX",
     phoneNumber: "+1 (800) DOS-BROS",
     email: "catering@dosbrostacos.com",
-    businessHours: "Mon - Fri • 9:00 AM - 6:00 PM",
+    businessHours: "Mon - Fri • 11:00 AM - 11:00 PM",
     copyright: "© 2026 Dos Bros Tacos. All rights reserved.",
     navigation: [
         {

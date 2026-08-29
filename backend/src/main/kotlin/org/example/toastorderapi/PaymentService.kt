@@ -2,7 +2,9 @@ package org.example.toastorderapi
 
 import org.springframework.stereotype.Service
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.util.UUID
 import java.time.Instant
 
@@ -13,9 +15,8 @@ class PaymentService (
     private val paymentProvider : PaymentProvider,
 ) {
 
-
-
     fun createPayment(orderId: UUID): PaymentResponse {
+        val now = Instant.now()
 
         val existingPayment = findExistingPayment(orderId)
 
@@ -25,7 +26,6 @@ class PaymentService (
 
         val order = findOrder(orderId)
         validatePaymentStatus(order)
-        val now = Instant.now()
         val payment = Payment(
             id = UUID.randomUUID(),
             orderId = order.id,
@@ -33,10 +33,10 @@ class PaymentService (
             status = PaymentStatus.PENDING,
             amount = order.total,
             stripePaymentIntentId = null,
+            stripeRequestSentAt = null,
             createdAt = now,
             updatedAt = now,
         )
-
         return try {
             val savedPayment = paymentRepository.save(payment)
 
@@ -45,9 +45,11 @@ class PaymentService (
                 savedPayment.paymentRequestId,
             )
             savedPayment.stripePaymentIntentId = paymentIntent.id
-            savedPayment.updatedAt = now
+            savedPayment.stripeRequestSentAt = paymentIntent.stripeRequestSentAt
+            savedPayment.updatedAt = Instant.now()
 
             val finalPayment = paymentRepository.save(savedPayment)
+
             finalPayment.toResponse(
                 clientSecret = paymentIntent.clientSecret
             )
@@ -71,8 +73,8 @@ class PaymentService (
         val payment = paymentRepository
             .findByPaymentRequestId(paymentRequestId)
 
-            ?: throw IllegalStateException(
-                "Payment not found for paymentRequestId: $paymentRequestId"
+            ?: throw PaymentNotFoundException(
+                id = paymentRequestId
             )
 
         if (payment.status == PaymentStatus.SUCCESSFUL) {
@@ -88,6 +90,95 @@ class PaymentService (
             paymentRepository.save(payment)
         }
 
+        markOrderPaid(payment)
+        return payment.toResponse()
+    }
+
+
+                        /*         HELPER FUNCTIONS            */
+
+
+
+    @Transactional
+    @Scheduled(fixedDelay = 60_000)
+    fun reconcilePayments() {
+        val payments = findPaymentsNeedingReconciliation()
+
+        for (payment in payments) {
+            if (payment.stripeRequestSentAt == null) {
+                retryPaymentCreation(payment)
+                continue
+            }
+
+            val stripeStatus = paymentProvider
+                .retrievePaymentStatus(payment.paymentRequestId)
+
+            updatePaymentFromStripeState(
+                payment,
+                stripeStatus
+            )
+        }
+    }
+
+    private fun retryPaymentCreation(
+        payment: Payment
+    ) {
+        val paymentIntent = paymentProvider.createPaymentIntent(
+            payment.amount,
+            payment.paymentRequestId,
+        )
+
+        payment.stripePaymentIntentId = paymentIntent.id
+        payment.stripeRequestSentAt = paymentIntent.stripeRequestSentAt
+        payment.updatedAt = Instant.now()
+        paymentRepository.save(payment)
+    }
+    private fun updatePaymentFromStripeState(
+        payment: Payment,
+        stripeStatus: PaymentStatus?
+    ) {
+        when (stripeStatus) {
+            PaymentStatus.SUCCESSFUL -> {
+                payment.status = PaymentStatus.SUCCESSFUL
+                payment.updatedAt = Instant.now()
+                paymentRepository.save(payment)
+
+                markOrderPaid(payment)
+            }
+
+            PaymentStatus.PENDING,
+            PaymentStatus.PROCESSING -> {
+                return
+            }
+
+            PaymentStatus.FAILED -> {
+                payment.status = PaymentStatus.FAILED
+                payment.updatedAt = Instant.now()
+                paymentRepository.save(payment)
+            }
+
+            null -> {
+                retryPaymentCreation(payment)
+                return
+            }
+            else -> return
+        }
+    }
+    private fun findPaymentsNeedingReconciliation(): List<Payment> {
+        val cutoff = Instant.now()
+            .minus(Duration.ofMinutes(15))
+
+        return paymentRepository.findPaymentsNeedingReconciliation(
+            status = PaymentStatus.PENDING,
+            cutoff = cutoff
+        )
+    }
+
+
+
+    private fun markOrderPaid(
+        payment: Payment
+    ) {
         val order = orderRepository
             .findById(payment.orderId)
             .orElseThrow {
@@ -101,42 +192,32 @@ class PaymentService (
 
             orderRepository.save(order)
         }
-        return payment.toResponse()
     }
 
 
 
     private fun findOrder(id: UUID): Order {
-
         return orderRepository.findById(id)
             .orElseThrow{
                 OrderNotFoundException(id)
             }
-
     }
-
-
     private fun validatePaymentStatus(order: Order) {
-
         if (order.status != OrderStatus.PAYMENT_PENDING) {
             throw OrderCannotBePaidException(
-                order.id,
-                order.status
+                status = order.status,
+                id = order.id
             )
         }
-
     }
-
-
     private fun findExistingPayment(orderId: UUID): Payment? {
-
         return paymentRepository.findByOrderId(orderId)
-
     }
 
 
 
-    /*
+    /*                              TEST FUNCTIONS
+
         fun testStripeConnection() {
             val account = stripeClient
                 .v1()

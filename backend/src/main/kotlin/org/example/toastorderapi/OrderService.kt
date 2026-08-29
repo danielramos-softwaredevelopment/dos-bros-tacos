@@ -5,6 +5,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.util.UUID
 
@@ -31,16 +32,20 @@ class OrderService(
             errors = deliveryErrors
         )
 
+        validateMinimumDeliveryTime(
+            deliveryTime = request.deliveryTime,
+            deliveryDate = request.deliveryDate,
+            errors = deliveryErrors
+        )
+
         if (deliveryErrors.isNotEmpty()) {
             throw InvalidDeliveryWindowException(
-                message = "Please correct the highlighted fields",
                 fieldErrors = deliveryErrors
             )
         }
 
         validateItems(items = request.items)
         validatePositiveItemQuantities(items = request.items)
-
 
         val subtotal = calculateSubtotal(request.items)
         val tax = calculateTax(subtotal)
@@ -84,21 +89,15 @@ class OrderService(
 
 
 
-                    //  CALCULATION  //
+                    //  HELPER FUNCTIONS  //
 
     private fun getPrice(menuItemId: Int): BigDecimal {
-
         return menuItemRepository.findById(menuItemId)
             .orElseThrow{
-                IllegalArgumentException(
-                    "Menu item not found: $menuItemId"
-                )
+                MenuItemNotFoundException(menuItemId)
             }
-
             .price
     }
-
-
     private fun calculateSubtotal(
         items: List<CreateOrderItemRequest>
     ): BigDecimal {
@@ -108,22 +107,16 @@ class OrderService(
         }
 
     }
-
-
     private fun calculateTax(subtotal: BigDecimal): BigDecimal {
         return subtotal
             .multiply(taxRate)
             .setScale(2, RoundingMode.HALF_UP)
     }
-
-
     private fun calculateTotal(subtotal: BigDecimal, tax: BigDecimal): BigDecimal {
         return subtotal.add(tax)
     }
 
 
-
-                    //  VALIDATION  //
 
     private fun validateDeliveryDate(
         deliveryDate: LocalDate,
@@ -134,42 +127,46 @@ class OrderService(
                 "Delivery date cannot be in the past"
         }
     }
-
-
     private fun validateDeliveryTime(
         deliveryTime: LocalTime,
         errors: MutableMap<String, String>
         ) {
-            val openingTime = LocalTime.of(9, 0)
-            val closingTime = LocalTime.of(18, 0)
+            val openingTime = LocalTime.of(11, 0)
+            val closingTime = LocalTime.of(23, 0)
 
             if (deliveryTime !in openingTime..<closingTime) {
                 errors["deliveryTime"] =
-                    "Delivery time must fall between 9AM and 6PM"
+                    "Delivery time must fall between $openingTime and $closingTime"
             }
         }
+    private fun validateMinimumDeliveryTime(
+        deliveryTime: LocalTime,
+        deliveryDate: LocalDate,
+        errors: MutableMap<String, String>
+    ) {
+        val minimumDeliveryDateTime = LocalDateTime.now().plusMinutes(30)
 
+        val requestedDeliveryDateTime = LocalDateTime.of(
+            deliveryDate,
+            deliveryTime
+        )
 
+        if (requestedDeliveryDateTime.isBefore(minimumDeliveryDateTime)) {
+            errors["deliveryTime"] =
+                "Delivery time must be at least 30 minutes from now"
+        }
+    }
     private fun validateItems(items: List<CreateOrderItemRequest>) {
         if (items.isEmpty()) {
-            throw IllegalArgumentException(
-                "Items cannot be empty"
-            )
+            throw EmptyOrderItemsException()
         }
     }
-
-
     private fun validatePositiveItemQuantities(items: List<CreateOrderItemRequest>) {
         if (items.any{it.quantity <= 0}) {
-            throw IllegalArgumentException(
-                "Quantity must be greater than zero"
-            )
+            throw InvalidItemQuantityException()
         }
     }
 
-
-
-                    //  ORDER FETCHING  //
 
     private fun findOrder(id: UUID): Order {
         return orderRepository.findById(id)
@@ -177,22 +174,18 @@ class OrderService(
                 OrderNotFoundException(id)
             }
     }
-
-
     fun getOrder(id: UUID): OrderResponse {
         val order = findOrder(id)
         return order.toResponse()
     }
 
 
+
     fun cancelOrder(id: UUID): OrderResponse {
         val order = findOrder(id)
 
         if (order.status != OrderStatus.PAYMENT_PENDING) {
-            throw OrderCannotBeCancelledException(
-                id,
-                status = order.status,
-            )
+            throw OrderCannotBeCancelledException(id)
         }
         order.status = OrderStatus.CANCELLED
         order.updatedAt = Instant.now()
@@ -200,22 +193,4 @@ class OrderService(
 
         return saveOrder.toResponse()
     }
-
-
-    fun markOrderPaid(id: UUID): OrderResponse {
-        val order = findOrder(id)
-        if (order.status != OrderStatus.PAYMENT_PENDING) {
-            throw OrderCannotBePaidException(
-                id,
-                status = order.status,
-            )
-        }
-        order.status = OrderStatus.PAID
-        order.updatedAt = Instant.now()
-        val saveOrder = orderRepository.save(order)
-        return saveOrder.toResponse()
-    }
-
-
-
 }

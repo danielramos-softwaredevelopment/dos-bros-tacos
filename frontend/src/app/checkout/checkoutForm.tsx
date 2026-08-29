@@ -132,7 +132,7 @@ export default function CheckoutForm({
                 </h2>
 
                 <p className="text-lg text-c-charcoal/70">
-                    Just Tell Us When and Where to Deliver.
+                    Just Tell Us When
                 </p>
             </div>
 
