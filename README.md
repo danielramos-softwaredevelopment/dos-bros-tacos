@@ -1,593 +1,438 @@
-# Dos Bros Tacos — Full-Stack Restaurant Ordering Platform
+# Dos Bros Tacos
 
-A full-stack restaurant ordering platform designed and built from the ground up to demonstrate product design, frontend engineering, backend architecture, payment processing, and production deployment.
+A production-minded restaurant ordering backend built around a real-world food ordering workflow, with a focus on **reliability, payment safety, validation, persistence, and failure recovery** rather than simply implementing CRUD endpoints.
 
-**Live Website:** https://dos-bros-tacos.vercel.app/
+## Live Demo
 
-**GitHub:** https://github.com/danielramos-softwaredevelopment
+The full-stack application is deployed and can be explored through the live restaurant website.
 
----
+**Live Site:** [Dos Bros Tacos](https://dos-bros-tacos.vercel.app/)
 
-## Overview
+The live application demonstrates the complete ordering experience, including:
 
-Dos Bros Tacos is a production-deployed restaurant ordering experience built as a complete 0→1 product.
+* Restaurant menu browsing
+* Delivery date and time selection
+* Delivery-window validation
+* Minimum 30-minute scheduling requirement
+* Server-side order validation
+* Backend pricing and tax calculation
+* Order persistence
+* Stripe test-mode payment processing
+* Payment state tracking
+* Payment failure recovery and reconciliation
 
-The project combines a responsive customer-facing interface with a Kotlin/Spring Boot backend, PostgreSQL persistence, Stripe payments, and asynchronous payment confirmation through Stripe webhooks.
+> **Note:** This application uses Stripe test-mode payments. No real charges are made.
 
-The goal was not simply to build a working CRUD application, but to create a realistic ordering system that remains reliable when requests are retried, payments are delayed, external services fail, or the client and backend temporarily disagree about state.
+## Tech Stack
 
----
+* **Kotlin**
+* **Spring Boot 4**
+* **Spring Data JPA / Hibernate**
+* **PostgreSQL**
+* **Gradle Kotlin DSL**
+* **Stripe API**
+* **Docker**
+* **JUnit / Spring Boot Test**
+* **Java 21**
 
-## Product Experience
+## Architecture
 
-The application allows customers to:
-
-* Browse the restaurant menu
-* Add and modify items in a cart
-* Review their order
-* Calculate totals and taxes
-* Submit an order
-* Complete payment through Stripe
-* Receive payment confirmation
-* Track the resulting order state
-
-The frontend was designed around clear customer flows rather than individual screens, with an emphasis on responsive layouts, reusable components, clear states, and straightforward interactions.
-
----
-
-## Technology Stack
-
-### Frontend
-
-* Next.js
-* React
-* TypeScript
-* Tailwind CSS
-* Responsive UI
-* Reusable component architecture
-
-### Backend
-
-* Kotlin
-* Spring Boot
-* Spring Data JPA
-* Hibernate
-* REST APIs
-* Layered architecture
-* DTO mapping
-* Domain modeling
-* Validation
-* Centralized exception handling
-
-### Data
-
-* PostgreSQL
-* Supabase
-* JPA/Hibernate entity relationships
-* Database constraints
-* Transaction management
-
-### Payments & Integrations
-
-* Stripe PaymentIntents
-* Stripe Webhooks
-* Stripe CLI
-* Third-party API integration
-
-### Deployment
-
-* Vercel — frontend
-* Render — backend
-* Supabase — PostgreSQL database
-* GitHub — source control
-
----
-
-# Architecture
-
-The application separates responsibilities across the frontend, API, business logic, persistence, and external payment systems.
+The application follows a layered backend architecture:
 
 ```text
-┌──────────────────────┐
-│      Next.js UI      │
-│   React + TypeScript │
-└──────────┬───────────┘
-           │
-           │ REST API
-           ▼
-┌──────────────────────┐
-│   Spring Boot API    │
-│       Kotlin         │
-├──────────────────────┤
-│    Controllers       │
-│         ↓            │
-│      Services        │
-│         ↓            │
-│    Repositories      │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│      PostgreSQL      │
-│       Supabase       │
-└──────────────────────┘
-
-           │
-           │ Payment creation
-           ▼
-┌──────────────────────┐
-│        Stripe        │
-│    PaymentIntent     │
-└──────────┬───────────┘
-           │
-           │ Webhook
-           ▼
-┌──────────────────────┐
-│ /webhooks/stripe     │
-│                      │
-│ Verify signature     │
-│ Parse event          │
-│ Update payment state │
-└──────────────────────┘
+HTTP Request
+     ↓
+Controller
+     ↓
+Service
+     ↓
+Repository
+     ↓
+PostgreSQL
 ```
 
----
-
-# Order Lifecycle
-
-Orders move through explicit states rather than relying on a single success response from the frontend.
+External systems are isolated behind application-level responsibilities:
 
 ```text
+                    ┌──────────────┐
+                    │    Client    │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │ Controllers  │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Services   │
+                    └───┬──────┬───┘
+                        │      │
+             ┌──────────┘      └──────────┐
+             ▼                            ▼
+      ┌─────────────┐              ┌─────────────┐
+      │ PostgreSQL  │              │    Stripe   │
+      └─────────────┘              └─────────────┘
+```
+
+The goal is to keep business logic inside services while keeping persistence and external integrations behind dedicated components.
+
+---
+
+# Core Order Flow
+
+An order follows a state-driven workflow:
+
+```text
+Order Request
+     ↓
+Validate Delivery Window
+     ↓
+Validate Items
+     ↓
+Calculate Subtotal
+     ↓
+Calculate Tax
+     ↓
+Calculate Total
+     ↓
+Create Order
+     ↓
 PAYMENT_PENDING
-       │
-       │ Stripe PaymentIntent
-       ▼
-   PROCESSING
-       │
-       │ payment_intent.succeeded
-       ▼
-      PAID
+     ↓
+Payment Processing
+     ↓
+Payment Confirmed
 ```
 
-Payment confirmation is ultimately driven by Stripe's webhook event rather than trusting the browser's redirect or success page.
-
-This allows the backend to remain the authoritative source of payment state.
+Orders are persisted with a PAYMENT_PENDING state before payment processing, providing a durable record of the order and its payment state.
 
 ---
 
-# Payment Architecture
+# Delivery Validation
 
-Stripe PaymentIntents are used to process customer payments.
+Orders must satisfy several independent delivery rules.
 
-The payment flow is:
+### Delivery Date
+
+The requested delivery date cannot be in the past.
+
+### Business Hours
+
+Delivery must fall within the **business window enforced by the backend**.
+
+The current business window is:
+
+**11:00 AM – 11:00 PM**
+
+### Minimum Notice
+
+A delivery must be scheduled at least **30 minutes in advance**.
+
+The date and time are combined before this comparison:
 
 ```text
-Customer
-   │
-   ▼
-Checkout UI
-   │
-   ▼
-Backend creates PaymentIntent
-   │
-   ▼
-Stripe processes payment
-   │
-   ▼
-Stripe emits payment_intent.succeeded
-   │
-   ▼
-POST /webhooks/stripe
-   │
-   ├── Verify Stripe signature
-   │
-   ├── Extract PaymentIntent
-   │
-   ├── Read payment_request_id
-   │
-   └── Update order/payment state
-           │
-           ▼
-          PAID
+Requested Delivery Date + Requested Delivery Time
+                         ↓
+                LocalDateTime
+                         ↓
+             Must be ≥ Now + 30 min
 ```
 
-The webhook endpoint validates the `Stripe-Signature` header using Stripe's webhook signing secret before processing the event.
-
-This prevents the application from accepting arbitrary requests that claim a payment succeeded.
+Keeping business-hour validation and minimum-notice validation separate allows each rule to evolve independently.
 
 ---
 
-# Idempotent Payment Processing
+# Order Validation
 
-Payment processing must be safe when requests are retried.
+The API validates orders before persistence.
 
-A network failure can occur after Stripe successfully processes a payment but before the application receives the response. Retrying the request without protection could potentially create duplicate payment attempts.
+Validation includes:
 
-The backend therefore uses:
+* Delivery date is not in the past
+* Delivery time falls within the backend-enforced business window
+* Delivery is scheduled at least 30 minutes in advance
+* Order contains at least one item
+* Item quantities are positive
+* Requested menu items exist
 
-* Idempotency keys
-* Unique database constraints
-* Existing payment lookup
-* Retry-safe recovery logic
+Validation errors are collected into a field-error map where appropriate so clients can receive meaningful validation feedback.
 
-The goal is to ensure that repeating the same payment operation does not result in duplicate processing.
+---
+
+# Pricing
+
+Order totals are calculated on the backend rather than trusting client-provided totals.
 
 ```text
-Request
-   │
-   ▼
-Generate idempotency key
-   │
-   ▼
-Create PaymentIntent
-   │
-   ├── Success ────────────────┐
-   │                           │
-   └── Timeout / Retry         │
-               │               │
-               ▼               │
-        Recover existing       │
-        payment operation      │
-               │               │
-               └───────────────┘
-                       │
-                       ▼
-                  Single payment
+Menu Item Prices
+       ↓
+   Subtotal
+       ↓
+      Tax
+       ↓
+     Total
 ```
+
+The configured tax rate is:
+
+**7%**
+
+Tax is rounded to two decimal places using `HALF_UP` rounding.
+
+This ensures the server remains the authority for financial calculations.
 
 ---
 
-# Server-Authoritative Pricing
+# Payment Processing
 
-The frontend does not have final authority over the amount charged.
+Stripe is used as the external payment provider.
 
-The backend calculates the order total using trusted menu and order data before creating the payment.
+Payment-related state is persisted separately from the order so that payment processing can be tracked independently.
 
-This prevents a client from modifying a request and attempting to submit an arbitrary price.
+A payment records information such as:
+
+* Payment ID
+* Order ID
+* Payment amount
+* Payment status
+* Payment request ID
+* Stripe PaymentIntent ID
+* Time the Stripe request was sent
+* Creation and update timestamps
+
+Sensitive Stripe credentials are provided through environment variables rather than being stored in source code.
+
+Required local environment variables:
 
 ```text
-Client Order
-     │
-     ▼
-Backend validates items
-     │
-     ▼
-Backend retrieves trusted pricing
-     │
-     ▼
-Calculate subtotal
-     │
-     ▼
-Calculate tax
-     │
-     ▼
-Calculate final total
-     │
-     ▼
-Create payment
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET_KEY
 ```
-
-This keeps business-critical pricing logic on the server.
 
 ---
 
-# Database & Domain Modeling
+# Payment Reliability
 
-The application models core restaurant concepts as persistent domain entities.
+Payment processing is designed around the reality that external API calls can fail independently from database transactions.
 
-Primary concepts include:
+For example:
+
+```text
+Database Transaction
+        ↓
+Payment State
+        ↓
+Stripe Request
+        ↓
+Network Failure
+```
+
+A database rollback cannot undo a successful external Stripe charge. This creates a distributed consistency problem between the database and the external payment provider.
+
+Because of this, the payment workflow tracks enough state to distinguish between:
+
+* Payment not attempted
+* Payment request sent
+* Payment successfully associated with Stripe
+* Payment requiring reconciliation
+
+This allows the system to recover from failures instead of assuming that a failed application request necessarily means the external payment failed.
+
+---
+
+# Payment Reconciliation
+
+A scheduled reconciliation process checks payments that remain in an unresolved state.
+
+Conceptually:
+
+```text
+          ┌────────────────────┐
+          │ Payment Pending    │
+          └─────────┬──────────┘
+                    │
+                    ▼
+             Stripe Request
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+       Success              Failure
+          │                   │
+          ▼                   ▼
+ Payment Confirmed       Retry / Recovery
+                              │
+                              ▼
+                       Reconciliation
+```
+
+This protects the system from situations where the application loses the response from Stripe even though Stripe may have successfully processed the payment.
+
+The reconciliation process is scheduled by Spring and operates against persisted payment state.
+
+---
+
+# Database
+
+The application uses PostgreSQL with Spring Data JPA/Hibernate.
+
+Current persistence includes entities for concepts such as:
 
 * Orders
 * Order Items
 * Payments
+* Menu Items
 
-JPA/Hibernate manages relationships between these entities while PostgreSQL provides durable persistence.
+Repositories isolate database access from business logic.
 
-Database constraints are also used to protect important invariants at the persistence layer rather than relying exclusively on application-level checks.
-
----
-
-# Layered Backend Architecture
-
-The backend follows a traditional layered architecture:
-
-```text
-HTTP Request
-     │
-     ▼
-Controller
-     │
-     ▼
-Service
-     │
-     ▼
-Repository
-     │
-     ▼
-PostgreSQL
-```
-
-### Controllers
-
-Responsible for:
-
-* HTTP request handling
-* Request validation
-* Response construction
-* API boundaries
-
-### Services
-
-Responsible for:
-
-* Business rules
-* State transitions
-* Transaction boundaries
-* Payment workflows
-* Order lifecycle logic
-
-### Repositories
-
-Responsible for:
-
-* Database access
-* Persistence
-* Entity retrieval
-* Database queries
-
-This separation keeps business logic independent from HTTP and persistence concerns.
+Hibernate manages the entity mapping and persistence lifecycle.
 
 ---
 
-# Reliability & Failure Handling
+# Failure Handling
 
-The system was designed with failure scenarios in mind rather than assuming every operation succeeds.
+The backend is designed with failure scenarios in mind rather than treating the happy path as the only possible execution path.
 
-Examples include:
+Examples considered include:
 
-* Duplicate payment requests
-* Stripe payment retries
-* Delayed webhook delivery
-* Failed payments
-* Invalid order data
-* Invalid state transitions
-* Database constraints
-* Client/server state differences
-* External service failures
+* Invalid delivery dates
+* Invalid delivery times
+* Invalid item quantities
+* Missing menu items
+* Empty orders
+* Payment failures
+* External payment requests that lose their response
+* Orders being cancelled while payment is pending
+* Database persistence failures
 
-One important design principle is that **a successful frontend payment page does not itself make an order paid**.
-
-The backend waits for authoritative payment confirmation from Stripe.
+The objective is to preserve important business invariants even when individual operations fail.
 
 ---
 
-# Production Deployment
+# Important Invariants
 
-The project is deployed as separate frontend and backend applications.
+The system is designed around several important invariants.
 
-```text
-GitHub
-   │
-   ├───────────────┐
-   │               │
-   ▼               ▼
- Vercel          Render
-   │               │
-Next.js        Spring Boot
-                   │
-                   ▼
-              Supabase
-              PostgreSQL
+### Payment Safety
 
-                   ▲
-                   │
-                 Stripe
-                   │
-                   ▼
-             Stripe Webhook
-```
+A payment request must not result in multiple customer charges.
 
-The production deployment required resolving several real-world integration issues, including:
+### Order Integrity
 
-* CORS configuration
-* Environment variables
-* Frontend/backend connectivity
-* Stripe webhook configuration
-* Webhook signature verification
-* Database persistence
-* Production API debugging
-* Deployment configuration
+An order must not be created with invalid delivery information or invalid menu items.
 
----
+### Financial Accuracy
 
-# Design & UX
+The backend calculates the authoritative subtotal, tax, and total.
 
-The project was designed as a customer-facing product rather than simply an API demonstration.
+### Recoverability
 
-Design considerations included:
+An uncertain payment state must be recoverable rather than silently treated as a failed payment.
 
-* Clear ordering flows
-* Responsive layouts
-* Reusable UI components
-* Visual hierarchy
-* Cart and checkout interactions
-* Loading states
-* Payment states
-* Error handling
-* Accessibility
-* Mobile-friendly interactions
-* Clear feedback after important user actions
+### Cancellation Safety
 
-The design goal was to make the ordering process feel simple even though the underlying system contains multiple services, state transitions, and failure scenarios.
-
----
-
-# AI-Assisted Development
-
-AI tools were used throughout the development process as an engineering and design accelerator.
-
-AI was used for:
-
-* Concept exploration
-* UI ideation
-* Rapid prototyping
-* Code generation
-* Debugging
-* Architecture analysis
-* Failure-mode analysis
-* Code critique
-* UX critique
-* Iterative refinement
-* Technical research
-
-AI was treated as a development tool rather than a replacement for engineering ownership.
-
-Architecture decisions, implementation choices, debugging, testing, and final code decisions remained under direct developer control.
-
----
-
-# Challenges & Lessons Learned
-
-### Stripe Webhooks
-
-The application initially relied heavily on the frontend payment flow. Moving payment confirmation to Stripe webhooks created a more reliable source of truth for payment state.
-
-### CORS
-
-Deploying the frontend and backend separately introduced cross-origin request requirements that did not exist during local development.
-
-The production environment required explicit CORS configuration for the Vercel frontend.
-
-### Environment Configuration
-
-Local development and production use different environments and secrets. Stripe credentials, webhook secrets, database credentials, and deployment configuration must be managed independently.
-
-### Distributed State
-
-The payment flow demonstrated an important distributed-systems problem:
-
-The browser, backend, Stripe, and database can temporarily have different views of the same operation.
-
-The system therefore relies on authoritative state transitions, idempotency, database constraints, and webhook-driven updates rather than assuming synchronous communication.
-
-### Production Debugging
-
-The application was tested through the deployed production stack rather than stopping after local development.
-
-This exposed issues involving:
-
-* CORS
-* API connectivity
-* Environment variables
-* Stripe webhook delivery
-* Database persistence
-* Payment state synchronization
-
-Resolving these issues provided practical experience debugging a distributed application across multiple independently deployed systems.
+Orders can only be cancelled while they remain in the appropriate cancellable state.
 
 ---
 
 # Local Development
 
-## Prerequisites
+## Requirements
 
-* Node.js
-* npm
-* JDK 21
-* Kotlin
+* Java 21
 * Gradle
-* PostgreSQL/Supabase account
-* Stripe account
+* PostgreSQL
+* Stripe test credentials
 
-## Frontend
+## Environment Variables
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend will be available at:
-
-```text
-http://localhost:3000
-```
-
-## Backend
+Set the required Stripe credentials in your local environment:
 
 ```bash
-cd backend
+export STRIPE_SECRET_KEY="your_test_secret_key"
+export STRIPE_WEBHOOK_SECRET_KEY="your_test_webhook_secret"
+```
+
+Verify that the variables are available to the current shell:
+
+```bash
+echo $STRIPE_SECRET_KEY
+echo $STRIPE_WEBHOOK_SECRET_KEY
+```
+
+> **Do not commit Stripe credentials to Git.**
+
+## Run the Application
+
+From the backend directory:
+
+```bash
 ./gradlew bootRun
 ```
 
-The Spring Boot API runs on:
+The application starts on:
 
 ```text
 http://localhost:8080
 ```
 
-## Environment Variables
-
-Sensitive credentials should be supplied through environment variables and should never be committed to source control.
-
-Example configuration:
-
-```text
-DATABASE_URL=...
-STRIPE_SECRET_KEY=...
-STRIPE_WEBHOOK_SECRET=...
-```
-
-Use the project's actual configuration files and deployment settings for the complete environment-variable list.
-
 ---
 
 # Testing
 
-The payment workflow was tested both locally and against the deployed production environment.
+Run the complete test suite with:
 
-Stripe CLI was used during development to test webhook delivery and payment events.
+```bash
+./gradlew test
+```
 
-Important scenarios tested include:
+The test suite covers application behavior including validation, order creation, persistence, and payment-related workflows.
 
-* Successful payments
-* Payment state transitions
-* Webhook processing
-* Duplicate/retry scenarios
-* Invalid requests
-* Production API communication
-* Database persistence
+Before pushing changes:
+
+```bash
+./gradlew test
+./gradlew bootRun
+```
+
+The application should successfully initialize Spring, connect to PostgreSQL, initialize Hibernate, and start Tomcat on port `8080`.
 
 ---
 
-# What This Project Demonstrates
+# Application Goals
 
-This project demonstrates experience across the full product lifecycle:
+This application is intentionally more than a basic restaurant CRUD API.
 
-**Concept → Design → Frontend → Backend → Database → Payments → Deployment → Debugging → Iteration**
+The primary goal is to practice building backend systems that remain understandable and recoverable when things go wrong.
 
-It also demonstrates practical experience with:
+The design focuses on:
 
-* Full-stack development
-* Product thinking
 * REST API design
-* Kotlin/Spring Boot
-* React/Next.js
-* PostgreSQL
-* Payment systems
-* Webhooks
+* Kotlin backend development
+* Spring Boot
+* PostgreSQL persistence
+* JPA/Hibernate
+* External API integration
+* Payment reliability
 * Idempotency
-* Transactions
-* Domain modeling
-* Asynchronous processing
-* Production debugging
-* Distributed-system failure modes
-* AI-assisted development
+* Transaction boundaries
+* Failure recovery
+* State-driven workflows
+* Validation
+* Testing
+* Distributed-system thinking
 
----
+The application is built as a practical exercise in moving from:
 
-## Project Status
+```text
+"It works when everything succeeds."
+```
 
-**Production deployed and actively maintained.**
+toward:
 
-The application continues to evolve as new design, engineering, and reliability improvements are identified.
+```text
+"What happens when every individual component
+can succeed or fail independently?"
+```
+
+That distinction is central to the design of the system.
